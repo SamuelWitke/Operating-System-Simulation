@@ -206,7 +206,7 @@ int freeSpace(int jobSize)
 */  
 void memoryManager()
 {
-	std::sort(FSTable.begin(), FSTable.end(), pairCompare);
+    std::sort(FSTable.begin(), FSTable.end(), pairCompare);
     if(Drumqueue.empty()) // return if empty
         return;
     PCB *temp= Drumqueue.front();
@@ -252,6 +252,7 @@ bool consolidate(const std::map<int,PCB*>::iterator it)
 				return true;
 			}
 	}
+	return false;
 }
 
 /*
