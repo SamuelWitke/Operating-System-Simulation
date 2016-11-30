@@ -6,14 +6,20 @@
 #include <algorithm>
 #include <iostream>
 
+static const int TIMESLICE=10; // Predetermined Time Slice to Handle RR scheduling 
+
 static std::map<int,PCB*> Jobtable; 	// Map of jobs (Job Number)->Process Control Block
 static std::deque<int> IOqueue; 	   // Queue of I/O requests
 static std::vector<std::pair<int,int> > FSTable; // Size,Address (Best Fit Free Space Table)
-static std::deque<PCB*> Drumqueue;		 // Queue of Jobs on Drum to be put in memory
+static std::deque<int> Drumqueue;		 // Queue of Jobs on Drum to be put in memory
 static std::deque<int> readyQueue;		// Ready Queue of jobs ready to be processed
+static bool csFlag; 			  // Used in Memory Manager as a critical section flag 
+static int jobRunning =0;
 
-// Helper Functions used in memoryManager()
+// Used in free Space to sort by size  
 bool pairCompare(const std::pair<int,int>,const std::pair<int,int>); 
+
+// Free Space manager used to handle finding address for job on free space
 int freeSpace(int);
 
 // Helper Function used to put job in memory 
@@ -28,8 +34,11 @@ bool consolidate(const std::map<int,PCB*>::iterator);
 // Helper Function used to remove a job
 void terminate(int);
 
-// Helper Function used to start I/O disk tranfer
-void startIO(int jobNum);
+// Helper Function used to start I/O disk transfer  
+void startIO(int,int);
+
+// Handles Job Time remaining if interrupted 
+void bookKeeper(int,int);
 
 /*
 	  SOS Functions
@@ -66,7 +75,8 @@ void offtrace();
 void startup()
 {
 	// Size(100) - Address(0)
-	FSTable.push_back(std::make_pair(100,0));
+	FSTable.push_back(std::make_pair(99,0));
+	csFlag=true;
 	ontrace();
 	//offtrace();
 }
@@ -78,12 +88,14 @@ void startup()
  *  p[3] = Job size, K bytes.
  *  p[4] = Time Slice
  *  p[5] = Current time.
+ *  New information is saved and store in Jobtable 
+ *  Job placed on Drum Queue to be handled by memoryManager()
 */
 void Crint(int &a, int p[]) 
 {
-	PCB *pcb = new PCB(p);
-	Jobtable[p[1]] = pcb; 	  // Add to Jobtable (Job Number)->Process Control Block
-	Drumqueue.push_back(pcb);// Add to Drum Queue
+	bookKeeper(p[1],p[5]);
+	Jobtable[p[1]] = new PCB(p); 	  // Add to Jobtable (Job Number)->Process Control Block
+	Drumqueue.push_back(p[1]);// Add Job to Drum Queue
 	memoryManager(); // Handle memory for job
 	scheduler(a,p); // Call to run job 
 }
@@ -91,17 +103,23 @@ void Crint(int &a, int p[])
 /*
  * Indicates Disk interrupt.
  * An I/O transfer between the disk and memory has been completed.
+ * Mark job currently finished as unlatched 
+ * Find another job to perform I/O
+ * if no jobs to perform I/O on mark job unblocked
  * p[5] = current time.
 */
 void Dskint(int &a, int p[])
 {
+	bookKeeper(p[1],p[5]);
 	PCB *job = Jobtable[IOqueue.front()];
-	job->setLatched(false);
 	IOqueue.pop_front();
 	if(!IOqueue.empty())// Test if any IO jobs left
 		siodisk(IOqueue.front());
-	else
+	else{
 		job->setBlocked(false);
+		job->setLatched(false);
+	}
+	readyQueue.push_back(p[1]);
 	memoryManager();
 	scheduler(a,p);
 }
@@ -109,14 +127,16 @@ void Dskint(int &a, int p[])
 /*
  * Indicates Drum interrupt.
  * A transfer between the drum and memory has completed a swap (In/Out)
+ * Set the flag in memory manager to show drum is not busy
  * p[5] = current time.
  */
 void Drmint(int &a, int p[])
 {
-	if(Jobtable[p[1]]->InCore()){
-	 	readyQueue.push_back(p[1]);
-		Jobtable[p[1]]->setTimeStart(p[5]);
-	}
+	bookKeeper(p[1],p[5]);
+	PCB *job = Jobtable[p[1]];
+	csFlag=true; // Drum Critical Section ready to be opened 
+	if(job->InCore())
+		readyQueue.push_back(p[1]);
 	memoryManager();
 	scheduler(a,p);
 }
@@ -127,11 +147,17 @@ void Drmint(int &a, int p[])
 */
 void Tro(int &a, int p[])
 {
-	PCB *job=Jobtable[p[1]]; // Get most recent job on ready queue
-	std::cout<<job->getMaxCpu()<<" Time remain "<<p[5] - job->getTimeStart()<<std::endl;
-	if(job->getMaxCpu() <= p[5] - job->getTimeStart()){
+	bookKeeper(p[1],p[5]);
+	PCB *job=Jobtable[p[1]];
+	job->setTimeRemain(TIMESLICE); // Decrement the time remaining by the time slice
+	if(job->getTimeRemain() <= 0){ // Terminate Job if no time processed remaining 
 		terminate(job->getNum());
 	}
+	else if(job->getTimeRemain() < TIMESLICE){//Handle Case where time remaining is less than time slice
+		p[4] = job->getTimeRemain();
+		a=2;
+	}else
+		readyQueue.push_back(p[1]);
 	memoryManager();
 	scheduler(a,p);
 }
@@ -144,16 +170,20 @@ void Tro(int &a, int p[])
  */
 void Svc(int &a, int p[])
 {
-	// Keep track of interrupted job (if any)
+	PCB *job = Jobtable[p[1]]; 
 	switch(a){
 		case 5: terminate(p[1]); 
 				break;
-		case 6: startIO(p[1]);
+		case 6: startIO(p[1],p[5]);
+				readyQueue.push_back(p[1]);
 				break;
-		case 7: if(!IOqueue.empty())
-					Jobtable[p[1]]->setBlocked(true);
+		case 7:	
+				if(!IOqueue.empty())
+					job->setBlocked(true);
+				readyQueue.push_back(p[1]);
 				break;
 	}
+	bookKeeper(p[1],p[5]);
 	memoryManager();
 	scheduler(a,p);
 }
@@ -164,6 +194,24 @@ void Svc(int &a, int p[])
 	  ================
 */
 
+// Handle Cases where Job is interrupted and time needs to be updated
+void bookKeeper(int num,int time)
+{
+	// Definitely needs to be cleaned up
+	int amt=0;
+	std::map<int,PCB*>::iterator job=Jobtable.find(jobRunning); // Get most job running
+	if(job == Jobtable.end())
+		return; 
+	if(!job->second->Running()){
+		job->second->setStartIntTime(time);	
+		return;
+	}
+	amt = time - job->second->getStartIntTime();
+	if(amt == TIMESLICE)
+			return;
+	job->second->setTimeRemain(amt);
+}
+
 // Sorting algorithm used in Free Space
 bool pairCompare(const std::pair<int,int> firstElem, const std::pair<int,int>secondElem) 
 {
@@ -172,11 +220,8 @@ bool pairCompare(const std::pair<int,int> firstElem, const std::pair<int,int>sec
 
 /* 
  * Free Space Manager
- *  if Job on Drum Queue can fit into memory
- *	return address 
- *	if no more space delete entry
- *  else 
- *  	return -1;
+ * Handle if Job on Drum Queue can fit into memory return address 
+ * Handle if no more space delete entry
 */
 int freeSpace(int jobSize)
 {
@@ -200,43 +245,72 @@ int freeSpace(int jobSize)
 /*
  * Memory Manager
  * Handle Drum Queue For Job to be placed in core
- * if enough memory move job
- * else take out a job
- *
+ * Handle if enough memory move job
+ * Handle case where not enough memory for job therefore take out a job
 */  
 void memoryManager()
 {
-    std::sort(FSTable.begin(), FSTable.end(), pairCompare);
+	std::sort(FSTable.begin(), FSTable.end(), pairCompare);
+	/*
+	Used in Debugging to see how many jobs need to be put into memory
+	std::deque<int> temp = Drumqueue;
+	while( ! temp.empty()){
+		std::cout<<" Job on DQue "<<temp.front()<<std::endl;
+		temp.pop_front();
+	}
+	*/
     if(Drumqueue.empty()) // return if empty
         return;
-    PCB *temp= Drumqueue.front();
-    int address= freeSpace(temp->getSize());	
-    if(address != -1){
-         siodrum(temp->getNum(),temp->getSize(),address,0);// Allocate from drum to memory
-         temp->setAddress(address);
-         Drumqueue.pop_front();
-    }else{
-    //(Using some Alog) swap from memory to drum 
-    }
+    PCB *job= Jobtable[Drumqueue.front()];
+	if(csFlag){
+    	int address= freeSpace(job->getSize());	
+    	if(address != -1){
+         	siodrum(job->getNum(),job->getSize(),address,0);// Allocate from drum to memory
+         	job->setAddress(address);
+         	Drumqueue.pop_front();
+		 	csFlag=false;
+		}else{
+			std::cout<<"NOT enough MEMOry"<<std::endl;
+    		//(Using some Alog) swap from memory to drum 
+    	}
+	}
 }
 
 /* 
  * Scheduler 
  * handle readyQueue
- * return (Using some Alog) job to run on CPU
+ * Using some Algorithm job to run on CPU
+ * handle cases where job is unable to run
+ * handle cycle of jobs running on CPU
 */
 void scheduler(int &a,int *p)
 {
+	// THIS IS NOT FULLY CORRECT JUST MADE TO TEST OTHER CASES
+	// Needs to be cleaned up
 	std::map<int,PCB*>::iterator it=Jobtable.find(readyQueue.front()); // Get most recent job on ready queue
-	if(readyQueue.empty() || it==Jobtable.end() || it->second->Blocked() ){ // Case test when to get new job
+	if(it == Jobtable.end()){
 		a=1;
 		return;
 	}
-	PCB *jobToRun= it->second;
-	p[1]= jobToRun->getNum(); 
-	p[2]= jobToRun->getAddress();
-	p[3]= jobToRun->getSize();
-	p[4]= 10;
+
+	if(readyQueue.empty() || it->second->Blocked() ){ // Case test when to get new job
+		a=1;
+		it->second->setRunning(false);
+		jobRunning=0;
+		return;
+	}
+	PCB *job= it->second;	
+	p[1]= job->getNum(); 
+	p[2]= job->getAddress();
+	p[3]= job->getSize();
+	job->setStartIntTime(p[5]);
+	if(job->getTimeRemain() < TIMESLICE)
+		p[4] = job->getTimeRemain();
+	else
+		p[4]= TIMESLICE;
+	job->setRunning(true);
+	readyQueue.pop_front();
+	jobRunning = p[1];
 	a=2; // set CPU to run mode 
 }
 
@@ -252,7 +326,6 @@ bool consolidate(const std::map<int,PCB*>::iterator it)
 				return true;
 			}
 	}
-	return false;
 }
 
 /*
@@ -279,10 +352,11 @@ void terminate(int jobNum)
   * Base on SVC request
   * Place on diskQueue
   * Preform Disk Opp
+  * Job running I/O is Latched
  */
-void startIO(int jobNum)
+void startIO(int jobNum,int time)
 {
  	IOqueue.push_back(jobNum);
 	siodisk(IOqueue.front());
-	Jobtable[jobNum]->setLatched(true);
+	Jobtable[IOqueue.front()]->setLatched(true);
 }
