@@ -169,7 +169,11 @@ void Tro(int &a, int p[])
  */
 void Svc(int &a, int p[])
 {
+<<<<<<< HEAD
 	bookKeeper(p[5]);
+=======
+	bookKeeper(p[1],p[5]);
+>>>>>>> 765cbc79b2dbd192d720ebd5d576b9a93b4fa118
 	PCB *job = Jobtable[p[1]]; 
 	switch(a){
 		case 5: terminate(p[1]); 
