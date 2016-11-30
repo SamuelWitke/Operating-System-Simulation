@@ -170,6 +170,7 @@ void Tro(int &a, int p[])
  */
 void Svc(int &a, int p[])
 {
+	bookKeeper(p[1],p[5]);
 	PCB *job = Jobtable[p[1]]; 
 	switch(a){
 		case 5: terminate(p[1]); 
@@ -183,7 +184,6 @@ void Svc(int &a, int p[])
 				readyQueue.push_back(p[1]);
 				break;
 	}
-	bookKeeper(p[1],p[5]);
 	memoryManager();
 	scheduler(a,p);
 }
