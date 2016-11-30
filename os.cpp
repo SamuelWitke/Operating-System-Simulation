@@ -14,7 +14,7 @@ static std::vector<std::pair<int,int> > FSTable; // Size,Address (Best Fit Free 
 static std::deque<int> Drumqueue;		 // Queue of Jobs on Drum to be put in memory
 static std::deque<int> readyQueue;		// Ready Queue of jobs ready to be processed
 static bool csFlag; 			  // Used in Memory Manager as a critical section flag 
-static int jobRunning =0;
+static int jobRunning =0;        // Used in bookKeeper to find running job
 
 // Used in free Space to sort by size  
 bool pairCompare(const std::pair<int,int>,const std::pair<int,int>); 
@@ -38,7 +38,7 @@ void terminate(int);
 void startIO(int,int);
 
 // Handles Job Time remaining if interrupted 
-void bookKeeper(int,int);
+void bookKeeper(int);
 
 /*
 	  SOS Functions
@@ -93,11 +93,11 @@ void startup()
 */
 void Crint(int &a, int p[]) 
 {
-	bookKeeper(p[1],p[5]);
+	bookKeeper(p[5]);
 	Jobtable[p[1]] = new PCB(p); 	  // Add to Jobtable (Job Number)->Process Control Block
-	Drumqueue.push_back(p[1]);// Add Job to Drum Queue
-	memoryManager(); // Handle memory for job
-	scheduler(a,p); // Call to run job 
+	Drumqueue.push_back(p[1]);		 // Add Job to Drum Queue
+	memoryManager(); 				// Handle memory for job
+	scheduler(a,p); 			   // Call to run job 
 }
 
 /*
@@ -110,7 +110,7 @@ void Crint(int &a, int p[])
 */
 void Dskint(int &a, int p[])
 {
-	bookKeeper(p[1],p[5]);
+	bookKeeper(p[5]);
 	PCB *job = Jobtable[IOqueue.front()];
 	IOqueue.pop_front();
 	if(!IOqueue.empty())// Test if any IO jobs left
@@ -132,7 +132,7 @@ void Dskint(int &a, int p[])
  */
 void Drmint(int &a, int p[])
 {
-	bookKeeper(p[1],p[5]);
+	bookKeeper(p[5]);
 	PCB *job = Jobtable[p[1]];
 	csFlag=true; // Drum Critical Section ready to be opened 
 	if(job->InCore())
@@ -147,12 +147,11 @@ void Drmint(int &a, int p[])
 */
 void Tro(int &a, int p[])
 {
-	bookKeeper(p[1],p[5]);
+	bookKeeper(p[5]);
 	PCB *job=Jobtable[p[1]];
 	job->setTimeRemain(TIMESLICE); // Decrement the time remaining by the time slice
-	if(job->getTimeRemain() <= 0){ // Terminate Job if no time processed remaining 
+	if(job->getTimeRemain() <= 0) // Terminate Job if no time processed remaining 
 		terminate(job->getNum());
-	}
 	else if(job->getTimeRemain() < TIMESLICE){//Handle Case where time remaining is less than time slice
 		p[4] = job->getTimeRemain();
 		a=2;
@@ -170,6 +169,7 @@ void Tro(int &a, int p[])
  */
 void Svc(int &a, int p[])
 {
+	bookKeeper(p[5]);
 	PCB *job = Jobtable[p[1]]; 
 	switch(a){
 		case 5: terminate(p[1]); 
@@ -183,7 +183,6 @@ void Svc(int &a, int p[])
 				readyQueue.push_back(p[1]);
 				break;
 	}
-	bookKeeper(p[1],p[5]);
 	memoryManager();
 	scheduler(a,p);
 }
@@ -195,7 +194,7 @@ void Svc(int &a, int p[])
 */
 
 // Handle Cases where Job is interrupted and time needs to be updated
-void bookKeeper(int num,int time)
+void bookKeeper(int time)
 {
 	// Definitely needs to be cleaned up
 	int amt=0;
@@ -208,7 +207,7 @@ void bookKeeper(int num,int time)
 	}
 	amt = time - job->second->getStartIntTime();
 	if(amt == TIMESLICE)
-			return;
+		return;
 	job->second->setTimeRemain(amt);
 }
 
@@ -299,6 +298,7 @@ void scheduler(int &a,int *p)
 		jobRunning=0;
 		return;
 	}
+
 	PCB *job= it->second;	
 	p[1]= job->getNum(); 
 	p[2]= job->getAddress();
@@ -311,6 +311,7 @@ void scheduler(int &a,int *p)
 	job->setRunning(true);
 	readyQueue.pop_front();
 	jobRunning = p[1];
+	std::cout<<"TIME :"<<job->getTimeRemain()<<std::endl;
 	a=2; // set CPU to run mode 
 }
 
