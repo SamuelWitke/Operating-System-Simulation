@@ -180,11 +180,7 @@ void Tro(int &a, int p[])
 void Svc(int &a, int p[])
 {
 	bookKeeper(p[5]);
-<<<<<<< HEAD
 	PCB *job = Jobtable[jobRunning]; 
-=======
-	PCB *job = Jobtable[p[1]]; 
->>>>>>> 0697f916b0b069da1e5e0139d998365c3074f919
 	switch(a){
 		case 5: terminate(job->getNum());
 				break;
