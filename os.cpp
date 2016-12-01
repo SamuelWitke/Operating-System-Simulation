@@ -14,8 +14,9 @@ static std::vector<std::pair<int,int> > FSTable; // Size,Address (Best Fit Free 
 static std::deque<int> Drumqueue;		 // Queue of Jobs on Drum to be put in memory
 static std::deque<int> readyQueue;		// Ready Queue of jobs ready to be processed
 static bool csFlag; 			  // Used in Memory Manager as a critical section flag 
-static int jobRunning =0;        // Used in bookKeeper to find running job
-static int jobSwapping =0;
+static int jobRunning =0;        // Used in to find running job
+static int jobSwapping =0;       // Used to find job begin placed into memory
+
 // Used in free Space to sort by size  
 bool pairCompare(const std::pair<int,int>,const std::pair<int,int>); 
 
