@@ -15,7 +15,7 @@ static std::deque<int> Drumqueue;		 // Queue of Jobs on Drum to be put in memory
 static std::deque<int> readyQueue;		// Ready Queue of jobs ready to be processed
 static bool csFlag; 			  // Used in Memory Manager as a critical section flag 
 static int jobRunning =0;        // Used in bookKeeper to find running job
-
+static int jobSwapping =0;
 // Used in free Space to sort by size  
 bool pairCompare(const std::pair<int,int>,const std::pair<int,int>); 
 
@@ -25,8 +25,11 @@ int freeSpace(int);
 // Helper Function used to put job in memory 
 void memoryManager();
 
-// Helper Function used to run a job
-void scheduler(int &,int *);
+// Helper Function used to find the best job
+int scheduler();
+
+//Helper Function used to run job in scheduler 
+void dispatcher(int&,int*);
 
 // Helper Function used to join adjacent  jobs
 bool consolidate(const std::map<int,PCB*>::iterator);
@@ -35,10 +38,14 @@ bool consolidate(const std::map<int,PCB*>::iterator);
 void terminate(int);
 
 // Helper Function used to start I/O disk transfer  
-void startIO(int,int);
+void startIO(int);
 
 // Handles Job Time remaining if interrupted 
 void bookKeeper(int);
+
+// Send Job Number to see if job in jobtable
+bool find(int);
+
 
 /*
 	  SOS Functions
@@ -97,7 +104,7 @@ void Crint(int &a, int p[])
 	Jobtable[p[1]] = new PCB(p); 	  // Add to Jobtable (Job Number)->Process Control Block
 	Drumqueue.push_back(p[1]);		 // Add Job to Drum Queue
 	memoryManager(); 				// Handle memory for job
-	scheduler(a,p); 			   // Call to run job 
+	dispatcher(a,p); 			   // Call to run job 
 }
 
 /*
@@ -119,9 +126,8 @@ void Dskint(int &a, int p[])
 		job->setBlocked(false);
 		job->setLatched(false);
 	}
-	readyQueue.push_back(p[1]);
 	memoryManager();
-	scheduler(a,p);
+	dispatcher(a,p);
 }
 
 /*
@@ -133,12 +139,16 @@ void Dskint(int &a, int p[])
 void Drmint(int &a, int p[])
 {
 	bookKeeper(p[5]);
-	PCB *job = Jobtable[p[1]];
+	PCB *job;
+	if(find(jobSwapping))
+		job = Jobtable[jobSwapping];
+	else
+		job = Jobtable[jobRunning];
 	csFlag=true; // Drum Critical Section ready to be opened 
 	if(job->InCore())
-		readyQueue.push_back(p[1]);
+		readyQueue.push_back(job->getNum());
 	memoryManager();
-	scheduler(a,p);
+	dispatcher(a,p);
 }
 
 /*
@@ -148,17 +158,16 @@ void Drmint(int &a, int p[])
 void Tro(int &a, int p[])
 {
 	bookKeeper(p[5]);
-	PCB *job=Jobtable[p[1]];
+	PCB *job=Jobtable[jobRunning];
 	job->setTimeRemain(TIMESLICE); // Decrement the time remaining by the time slice
 	if(job->getTimeRemain() <= 0) // Terminate Job if no time processed remaining 
 		terminate(job->getNum());
 	else if(job->getTimeRemain() < TIMESLICE){//Handle Case where time remaining is less than time slice
 		p[4] = job->getTimeRemain();
 		a=2;
-	}else
-		readyQueue.push_back(p[1]);
+	}
 	memoryManager();
-	scheduler(a,p);
+	dispatcher(a,p);
 }
 
 /*
@@ -169,26 +178,19 @@ void Tro(int &a, int p[])
  */
 void Svc(int &a, int p[])
 {
-<<<<<<< HEAD
 	bookKeeper(p[5]);
-=======
-	bookKeeper(p[1],p[5]);
->>>>>>> 765cbc79b2dbd192d720ebd5d576b9a93b4fa118
-	PCB *job = Jobtable[p[1]]; 
+	PCB *job = Jobtable[jobRunning]; 
 	switch(a){
-		case 5: terminate(p[1]); 
+		case 5: terminate(job->getNum());
 				break;
-		case 6: startIO(p[1],p[5]);
-				readyQueue.push_back(p[1]);
+		case 6: startIO(job->getNum());
 				break;
-		case 7:	
-				if(!IOqueue.empty())
+		case 7:	if(!IOqueue.empty())
 					job->setBlocked(true);
-				readyQueue.push_back(p[1]);
 				break;
 	}
 	memoryManager();
-	scheduler(a,p);
+	dispatcher(a,p);
 }
 
 
@@ -197,22 +199,28 @@ void Svc(int &a, int p[])
 	  ================
 */
 
+bool find(int job)
+{
+	std::map<int,PCB*>::iterator it=Jobtable.find(job); // Get most job running
+	return(it == Jobtable.end()? false : true); 
+}
+
 // Handle Cases where Job is interrupted and time needs to be updated
 void bookKeeper(int time)
 {
 	// Definitely needs to be cleaned up
 	int amt=0;
-	std::map<int,PCB*>::iterator job=Jobtable.find(jobRunning); // Get most job running
-	if(job == Jobtable.end())
+	if(!find(jobRunning))
 		return; 
-	if(!job->second->Running()){
-		job->second->setStartIntTime(time);	
+	PCB *job= Jobtable[jobRunning];
+	if(!job->Running()){
+		job->setStartIntTime(time);	
 		return;
 	}
-	amt = time - job->second->getStartIntTime();
+	amt = time - job->getStartIntTime();
 	if(amt == TIMESLICE)
 		return;
-	job->second->setTimeRemain(amt);
+	job->setTimeRemain(amt);
 }
 
 // Sorting algorithm used in Free Space
@@ -270,6 +278,7 @@ void memoryManager()
     	if(address != -1){
          	siodrum(job->getNum(),job->getSize(),address,0);// Allocate from drum to memory
          	job->setAddress(address);
+			jobSwapping = job->getNum();
          	Drumqueue.pop_front();
 		 	csFlag=false;
 		}else{
@@ -279,44 +288,62 @@ void memoryManager()
 	}
 }
 
+void dispatcher(int &a,int* p)
+{
+	if(find(scheduler())){
+		PCB *job= Jobtable[scheduler()];	
+		p[2]= job->getAddress();
+		p[3]= job->getSize();
+		job->setStartIntTime(p[5]);
+		if(job->getTimeRemain() < TIMESLICE)
+			p[4] = job->getTimeRemain();
+		else
+			p[4]= TIMESLICE;
+		job->setRunning(true);
+		jobRunning = job->getNum();
+		std::cout<<"TIME :"<<job->getTimeRemain()<<std::endl;
+		a=2; // set CPU to run mode 
+	}
+	else{
+		a=1;
+	}
+}
+
 /* 
  * Scheduler 
  * handle readyQueue
- * Using some Algorithm job to run on CPU
+ * Using some Algorithm select job 
  * handle cases where job is unable to run
  * handle cycle of jobs running on CPU
 */
-void scheduler(int &a,int *p)
+int scheduler()
 {
-	// THIS IS NOT FULLY CORRECT JUST MADE TO TEST OTHER CASES
-	// Needs to be cleaned up
-	std::map<int,PCB*>::iterator it=Jobtable.find(readyQueue.front()); // Get most recent job on ready queue
-	if(it == Jobtable.end()){
-		a=1;
-		return;
-	}
+	/*
+ 	USED IN DEBUGGING
+	std::cout<<" READY QUEUE "<<std::endl;
+	for(std::deque<int>::iterator it = readyQueue.begin();it!= readyQueue.end();++it)
+		std::cout<<*it<<std::endl;
+	*/
 
-	if(readyQueue.empty() || it->second->Blocked() ){ // Case test when to get new job
-		a=1;
-		it->second->setRunning(false);
-		jobRunning=0;
-		return;
+	PCB* job;
+	int jobToRun;
+	if(find(readyQueue.front())){ // Get most recent job on ready queue
+		//std::cout<<"Ready Queue Size"<<readyQueue.size()<<std::endl;
+		job= Jobtable[readyQueue.front()];	
+		if(job->Blocked()){
+			if(readyQueue.size() > 1){ // Case test when to get new job
+				readyQueue.pop_front();
+				jobToRun = readyQueue.front();
+				readyQueue.push_back(job->getNum());	
+			}else{
+				std::cout<<"IN THIS CASE"<<std::endl;
+				job->setRunning(false);
+				jobToRun=-1;
+			}
+		}else
+		jobToRun = job->getNum(); 
 	}
-
-	PCB *job= it->second;	
-	p[1]= job->getNum(); 
-	p[2]= job->getAddress();
-	p[3]= job->getSize();
-	job->setStartIntTime(p[5]);
-	if(job->getTimeRemain() < TIMESLICE)
-		p[4] = job->getTimeRemain();
-	else
-		p[4]= TIMESLICE;
-	job->setRunning(true);
-	readyQueue.pop_front();
-	jobRunning = p[1];
-	std::cout<<"TIME :"<<job->getTimeRemain()<<std::endl;
-	a=2; // set CPU to run mode 
+	return jobToRun;
 }
 
 /*
@@ -342,7 +369,7 @@ void terminate(int jobNum)
 {
 	std::map<int,PCB*>::iterator it=Jobtable.find(jobNum);
 	if(it!=Jobtable.end()){
-		if(!(it->second->Blocked()) && !it->second->Latched()){ // Job not blocked and can be deleted
+		if(!it->second->Blocked() && !it->second->Latched()){ // Job not blocked and can be deleted
 			if(!consolidate(it))
 				FSTable.push_back(std::make_pair(it->second->getSize(),it->second->getAddress()));
 			readyQueue.erase(std::remove(readyQueue.begin(),readyQueue.end(),jobNum),readyQueue.end());	
@@ -359,7 +386,7 @@ void terminate(int jobNum)
   * Preform Disk Opp
   * Job running I/O is Latched
  */
-void startIO(int jobNum,int time)
+void startIO(int jobNum)
 {
  	IOqueue.push_back(jobNum);
 	siodisk(IOqueue.front());
