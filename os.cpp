@@ -363,10 +363,11 @@ int getNextJob()
 */
 int scheduler()
 {
+	/*
 	std::cout<<" READY QUEUE "<<std::endl;
 	for(std::deque<int>::iterator it = readyQueue.begin();it!= readyQueue.end();++it)
 		std::cout<<*it<<std::endl;
-
+	*/
 	PCB* job;
 	int jobToRun=-1;
 	std::cout<<"Ready Queue"<<readyQueue.size()<<std::endl;
