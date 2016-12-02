@@ -6,7 +6,7 @@ class PCB
 	//friend std::ostream& operator<<(std::ostream & os, const PCB &other);
 	private:
 		int num,prio,size,maxCpu,timeRemain,address,startIntTime;
-		bool inCore,blocked,latched,running;
+		bool inCore,blocked,latched,running,terminate;
 	public:
 		PCB();
 		PCB(const int *data);
@@ -18,6 +18,7 @@ class PCB
 		void setLatched(const bool);
 		void setStartIntTime(const int);
 		void setRunning(const bool);
+		void setTerminate(const bool);
 		// Getter Methods
 		bool Blocked()const;
 		int getAddress()const;
@@ -29,8 +30,14 @@ class PCB
 		bool InCore()const;
 		bool Latched()const;
 		bool Running()const;
+		bool Terminate()const;
 };
 #endif
+
+void PCB::setTerminate(const bool val)
+{
+	terminate = val;
+}
 
 void PCB::setRunning(const bool val)
 {
@@ -62,6 +69,11 @@ void PCB::setAddress(const int addr)
 {
 	address = addr;	
 	inCore = true;	
+}
+
+bool PCB::Terminate()const
+{
+	return terminate;
 }
 
 int PCB::getStartIntTime()const
@@ -137,6 +149,7 @@ PCB::PCB()
 	blocked = false;
 	latched = false;
 	running = false;
+	terminate = false;
 	startIntTime=0;
 }	
 
@@ -151,6 +164,7 @@ PCB::PCB(const int *data)
 	latched = false;
 	running = false;
 	timeRemain=maxCpu;
+	terminate = false;
 	startIntTime=0;
 }
 
@@ -165,6 +179,7 @@ PCB &PCB::operator = (const PCB &pcb)
 	latched = pcb.latched;
 	running = pcb.running;
 	timeRemain=pcb.timeRemain;
-	startIntTime=0;
+	startIntTime=pcb.startIntTime;
+	terminate = pcb.terminate;
 	return *this;
 }
