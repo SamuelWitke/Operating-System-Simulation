@@ -129,8 +129,10 @@ void Dskint(int &a, int p[])
 	else{
 		job->setBlocked(false);
 		job->setLatched(false);
-		if(job->Terminate())
+		if(job->Terminate()){
+			std::cout<<" SOMETHING STUPID "<<job->getNum()<<std::endl;
 			terminate(job->getNum());
+		}
 	}
 	memoryManager();
 	dispatcher(a,p);
@@ -147,8 +149,10 @@ void Drmint(int &a, int p[])
 {
 	bookKeeper(p[5]);
 	std::sort(Drumqueue.begin(),Drumqueue.end(), pairCompare);
+	/*
 	for(std::deque<std::pair<int,int> >::iterator it=Drumqueue.begin();it != Drumqueue.end();++it)
 		std::cout<<"JOB NUM "<<it->second<<" SIZE "<<it->first<<std::endl;	
+	*/
 	PCB *job;
 	if(find(jobSwapping))
 		job = Jobtable[jobSwapping];
@@ -266,13 +270,12 @@ int freeSpace(int jobSize)
 			
 void consolidateAll()
 {
-	for(std::vector< std::pair<int,int> >::iterator itr = FSTable.begin(); itr != FSTable.end(); ++itr){
-		std::pair<int,int> p = std::make_pair(itr->first,itr->second);
-		if(consolidate(p)){
-			FSTable.erase(itr);
-			return;
-		}
-	}
+	for(std::vector< std::pair<int,int> >::iterator it = FSTable.begin(); it != FSTable.end(); ++it){
+			if(consolidate((*it))){
+				FSTable.erase(it);
+				return;
+			}
+			}
 }
 
 /*
@@ -283,11 +286,13 @@ void consolidateAll()
 */  
 void memoryManager()
 {
-	std::sort(FSTable.begin(), FSTable.end(), pairCompare);
 	consolidateAll();
+	std::sort(FSTable.begin(), FSTable.end(), pairCompare);
+	/*
 	std::cout<<"FREE SPACE"<<std::endl;
 	for(std::vector< std::pair<int,int> >::iterator it = FSTable.begin(); it != FSTable.end(); ++it)
 		std::cout<<"size "<<it->first<<" address "<<it->second<<std::endl;
+	*/
 	/*
 	Used in Debugging to see how many jobs need to be put into memory
 	std::deque<int> temp = Drumqueue;
@@ -315,6 +320,8 @@ void memoryManager()
 
 void dispatcher(int &a,int* p)
 {
+	if(p[1] == 47)
+		return;
 	if(find(scheduler())){
 		PCB *job= Jobtable[scheduler()];	
 		std::cout<<"RUNNING job"<<job->getNum()<<std::endl;
@@ -335,6 +342,18 @@ void dispatcher(int &a,int* p)
 	}
 }
 
+int getNextJob()
+{
+	if(readyQueue.size() > 1){ // Case test when to get new job
+		for(std::deque<int>::iterator it=readyQueue.begin();it != readyQueue.end(); ++it){
+			PCB *job= Jobtable[*it];	
+			if(!job->Blocked() || job->Terminate())
+				return job->getNum();
+		}	
+	}
+	return -1;
+}
+
 /* 
  * Scheduler 
  * handle readyQueue
@@ -349,24 +368,20 @@ int scheduler()
 		std::cout<<*it<<std::endl;
 
 	PCB* job;
-	int jobToRun;
+	int jobToRun=-1;
 	std::cout<<"Ready Queue"<<readyQueue.size()<<std::endl;
 	if(find(readyQueue.front())){ // Get most recent job on ready queue
 		//std::cout<<"Ready Queue Size"<<readyQueue.size()<<std::endl;
 		job= Jobtable[readyQueue.front()];	
 		if(job->Blocked() || job->Terminate()){
-			if(readyQueue.size() > 1){ // Case test when to get new job
-				std::cout<<"In Case Scheduler"<<std::endl;
-				readyQueue.pop_front();
-				jobToRun = readyQueue.front();
-				readyQueue.push_back(job->getNum());	
+			readyQueue.pop_front();
+			readyQueue.push_back(job->getNum());
+			job->setRunning(false);
+			jobToRun=getNextJob();
 			}else{
-				std::cout<<"IN THIS CASE"<<std::endl;
-				job->setRunning(false);
-				jobToRun=-1;
+				//job->setRunning(false);
+				jobToRun = job->getNum(); 
 			}
-		}else
-		jobToRun = job->getNum(); 
 	}
 	return jobToRun;
 }
@@ -375,17 +390,17 @@ int scheduler()
  *	Used in terminate() to join adjacent jobs in memory
 */ 
 bool consolidate(const std::pair<int,int> it)
-{
-	int temp;
-	for(std::vector<std::pair<int,int> >::iterator itr=FSTable.begin();itr != FSTable.end(); ++itr){
-		if(it.first + it.second == itr->second){
-			temp = itr->first;
-			FSTable.erase(itr);
-			FSTable.push_back(std::make_pair(it.first+temp,it.second));
-			return true;
-		}
-	}
-	return false;
+{   
+    int temp;
+    for(std::vector<std::pair<int,int> >::iterator itr=FSTable.begin();itr != FSTable.end(); ++itr){
+        if(it.first + it.second == itr->second){
+            temp = itr->first;
+            FSTable.erase(itr);
+            FSTable.push_back(std::make_pair(it.first+temp,it.second));
+            return true;
+        }
+    }
+    return false;
 }
 
 /*
@@ -399,9 +414,8 @@ void terminate(int jobNum)
 	std::cout<<"IN terminate "<<std::endl;
 	if(it!=Jobtable.end()){
 		if(!it->second->Blocked() && !it->second->Latched()){ // Job not blocked and can be deleted
-			std::cout<<"case 1 "<<std::endl;
 			std::pair<int,int> p = std::make_pair(it->second->getSize(),it->second->getAddress());
-			if(!consolidate(p))
+            if(!consolidate(p))
 				FSTable.push_back(std::make_pair(it->second->getSize(),it->second->getAddress()));
 			readyQueue.erase(std::remove(readyQueue.begin(),readyQueue.end(),jobNum),readyQueue.end());	
 			delete it->second;
@@ -411,6 +425,7 @@ void terminate(int jobNum)
 			readyQueue.erase(std::remove(readyQueue.begin(),readyQueue.end(),jobNum),readyQueue.end());	
 		}
 	}
+	std::cout<<"OUt Terminate"<<std::endl;
 }
 
  /*
