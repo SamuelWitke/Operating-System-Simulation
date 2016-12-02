@@ -147,8 +147,10 @@ void Drmint(int &a, int p[])
 {
 	bookKeeper(p[5]);
 	std::sort(Drumqueue.begin(),Drumqueue.end(), pairCompare);
+	/*
 	for(std::deque<std::pair<int,int> >::iterator it=Drumqueue.begin();it != Drumqueue.end();++it)
 		std::cout<<"JOB NUM "<<it->second<<" SIZE "<<it->first<<std::endl;	
+	*/
 	PCB *job;
 	if(find(jobSwapping))
 		job = Jobtable[jobSwapping];
@@ -344,10 +346,11 @@ void dispatcher(int &a,int* p)
 */
 int scheduler()
 {
+	/*
 	std::cout<<" READY QUEUE "<<std::endl;
 	for(std::deque<int>::iterator it = readyQueue.begin();it!= readyQueue.end();++it)
 		std::cout<<*it<<std::endl;
-
+	*/
 	PCB* job;
 	int jobToRun;
 	std::cout<<"Ready Queue"<<readyQueue.size()<<std::endl;
