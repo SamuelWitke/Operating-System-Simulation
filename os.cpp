@@ -28,7 +28,7 @@ int freeSpace(int);
 void memoryManager();
 
 // Helper Function used to find the best job
-int scheduler();
+int scheduler(int time);
 
 //Helper Function used to run job in scheduler 
 void dispatcher(int&,int*);
@@ -131,7 +131,6 @@ void Dskint(int &a, int p[])
 		job->setBlocked(false);
 		job->setLatched(false);
 		if(job->Terminate()){
-			std::cout<<" SOMETHING STUPID "<<job->getNum()<<std::endl;
 			terminate(job->getNum());
 		}
 	}
@@ -174,8 +173,6 @@ void Tro(int &a, int p[])
 {
 	bookKeeper(p[5]);
 	PCB *job=Jobtable[jobRunning];
-	if(job->getNum() == 33)
-		std::cout<<" time Remain "<<job->getTimeRemain()<<std::endl;
 	job->setTimeRemain(TIMESLICE); // Decrement the time remaining by the time slice
 	if(job->getTimeRemain() <= 0) // Terminate Job if no time processed remaining 
 		terminate(job->getNum());
@@ -230,7 +227,7 @@ void bookKeeper(int time)
 	if(!find(jobRunning))
 		return; 
 	PCB *job= Jobtable[jobRunning];
-	if(!job->Running()){
+	if(!job->Running()|| job->Blocked()){
 		job->setStartIntTime(time);	
 		return;
 	}
@@ -291,11 +288,10 @@ void memoryManager()
 {
 	consolidateAll();
 	std::sort(FSTable.begin(), FSTable.end(), pairCompare);
-	/*	
+	/*
 	std::cout<<"FREE SPACE"<<std::endl;
 	for(std::vector< std::pair<int,int> >::iterator it = FSTable.begin(); it != FSTable.end(); ++it)
 		std::cout<<"size "<<it->first<<" address "<<it->second<<std::endl;
-
 	*/
 	/*
 	Used in Debugging to see how many jobs need to be put into memory
@@ -324,9 +320,9 @@ void memoryManager()
 
 void dispatcher(int &a,int* p)
 {
-	if(find(scheduler())){
-		PCB *job= Jobtable[scheduler()];	
-		std::cout<<"RUNNING job"<<job->getNum()<<std::endl;
+	if(find(scheduler(p[5]))){
+		PCB *job= Jobtable[scheduler(p[5])];	
+		//std::cout<<"RUNNING job"<<job->getNum()<<std::endl;
 		p[2]= job->getAddress();
 		p[3]= job->getSize();
 		job->setStartIntTime(p[5]);
@@ -336,7 +332,7 @@ void dispatcher(int &a,int* p)
 			p[4]= TIMESLICE;
 		job->setRunning(true);
 		jobRunning = job->getNum();
-		std::cout<<"TIME :"<<job->getTimeRemain()<<std::endl;
+		//std::cout<<"TIME :"<<job->getTimeRemain()<<std::endl;
 		a=2; // set CPU to run mode 
 	}
 	else{
@@ -349,11 +345,8 @@ int getNextJob()
 	if(readyQueue.size() > 1){ // Case test when to get new job
 		for(std::deque<int>::iterator it=readyQueue.begin();it != readyQueue.end(); ++it){
 			PCB *job= Jobtable[*it];	
-			std::cout<<"Examine job "<<job->getNum()<<std::endl;
-			if(job->Blocked())
-				std::cout<<" job "<<job->getNum()<<" Blocked "<<std::endl;
+			//std::cout<<"Examine job "<<job->getNum()<<std::endl;
 			if(!job->Blocked() && !job->Terminate()){
-				std::cout<<"Job found "<<job->getNum()<<std::endl;
 				return job->getNum();
 			}
 		}	
@@ -368,7 +361,7 @@ int getNextJob()
  * handle cases where job is unable to run
  * handle cycle of jobs running on CPU
 */
-int scheduler()
+int scheduler(int time)
 {
 	/*
 	std::cout<<" READY QUEUE "<<std::endl;
@@ -383,7 +376,8 @@ int scheduler()
 		job= Jobtable[readyQueue.front()];	
 		if(job->Blocked() || job->Terminate()){
 			readyQueue.pop_front();
-			std::cout<<"In this case"<<std::endl;
+			//std::cout<<"In this case"<<std::endl;
+			job->setStartIntTime(time);
 			readyQueue.push_back(job->getNum());
 			job->setRunning(false);
 			jobToRun=getNextJob();
@@ -426,7 +420,7 @@ void terminate(int jobNum)
 	std::map<int,PCB*>::iterator it=Jobtable.find(jobNum);
 	if(it!=Jobtable.end()){
 		PCB *job=it->second;
-		if(!job->Blocked() && !job->Latched()){ // Job not blocked and can be deleted
+		if(!job->Blocked() && !job->Latched() && !job->Terminate()){ // Job not blocked and can be deleted
 			std::pair<int,int> p = std::make_pair(job->getSize(),job->getAddress());
             if(!consolidate(p))
 				FSTable.push_back(std::make_pair(job->getSize(),job->getAddress()));
@@ -452,7 +446,7 @@ void terminate(int jobNum)
 void startIO(int jobNum)
 {
  	IOqueue.push_back(jobNum);
-	Jobtable[IOqueue.front()]->setLatched(true);
+	Jobtable[jobNum]->setLatched(true);
 	Jobtable[jobNum]->setIOJobCount(Jobtable[jobNum]->getIOJobCount()+1);    
 /*
 	std::cout<<"IO QUEUE"<<std::endl;
