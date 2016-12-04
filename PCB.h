@@ -5,7 +5,7 @@ class PCB
 {
 	//friend std::ostream& operator<<(std::ostream & os, const PCB &other);
 	private:
-		int num,prio,size,maxCpu,timeRemain,address,startIntTime;
+		int num,prio,size,maxCpu,timeRemain,address,startIntTime,IOjobcount;
 		bool inCore,blocked,latched,running,terminate;
 	public:
 		PCB();
@@ -19,9 +19,11 @@ class PCB
 		void setStartIntTime(const int);
 		void setRunning(const bool);
 		void setTerminate(const bool);
+		void setIOJobCount(const int);
 		// Getter Methods
 		bool Blocked()const;
 		int getAddress()const;
+		int getIOJobCount()const;
 		int getSize()const;
 		int getNum()const;
 		int getMaxCpu()const;
@@ -33,6 +35,11 @@ class PCB
 		bool Terminate()const;
 };
 #endif
+
+void PCB::setIOJobCount(const int val)
+{
+	IOjobcount = val;
+}
 
 void PCB::setTerminate(const bool val)
 {
@@ -69,6 +76,11 @@ void PCB::setAddress(const int addr)
 {
 	address = addr;	
 	inCore = true;	
+}
+
+int PCB::getIOJobCount()const
+{
+	return IOjobcount;
 }
 
 bool PCB::Terminate()const
