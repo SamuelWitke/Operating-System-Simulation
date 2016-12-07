@@ -6,17 +6,15 @@
 #include <algorithm>
 #include <iostream>
 
-static const int TIMESLICE=10; // Predetermined Time Slice to Handle RR scheduling 
-
+static const int TIMESLICE=10; 			 // Predetermined Time Slice to Handle RR scheduling 
 static std::map<int,PCB*> Jobtable; 	// Map of jobs (Job Number)->Process Control Block
 static std::deque<int> IOqueue; 	   // Queue of I/O requests
-static std::vector<std::pair<int,int> > FSTable; // Size,Address (Best Fit Free Space Table)
+static std::vector<std::pair<int,int> > FSTable;   // Size,Address (Best Fit Free Space Table)
 static std::deque<std::pair<int,int> > Drumqueue; // Queue of Jobs on Drum to be put in memory job size job num
-static std::deque<int> readyQueue;		// Ready Queue of jobs ready to be processed
-static bool DrumFlag; 			  // Used in Memory Manager as a critical section flag 
-static bool IOFlag;
-static int jobRunning =0;        // Used in to find running job
-static int jobSwapping =0;       // Used to find job begin placed into memory
+static std::deque<int> readyQueue;	   // Ready Queue of jobs ready to be processed
+static bool DrumFlag; 			  	  // Used in Memory Manager as a critical section flag 
+static int jobRunning;            // Used in to find running job
+static int jobSwapping;          // Used to find job begin placed into memory
 
 // Used in free Space to sort by size  
 bool pairCompare(const std::pair<int,int>,const std::pair<int,int>); 
@@ -30,10 +28,10 @@ void memoryManager();
 // Helper Function used to find the best job
 int scheduler(int time);
 
-//Helper Function used to run job in scheduler 
+//Helper Function used to run job selected by scheduler 
 void dispatcher(int&,int*);
 
-// Helper Function used to join adjacent jobs tests one
+// Helper Function used to join adjacent jobs (one case)
 bool consolidate(const std::pair<int,int>);
 
 // Helper Function used to remove a job
@@ -48,7 +46,7 @@ void bookKeeper(int);
 // Send Job Number to see if job in jobtable
 bool find(int);
 
-// Used adjoin adjacent jobs tests all
+// Used adjoin adjacent jobs (all cases)
 void consolidateAll();
 
 /*
@@ -89,6 +87,8 @@ void startup()
 	FSTable.push_back(std::make_pair(100,0));
 	DrumFlag=true;
 	ontrace();
+	jobRunning=0;
+	jobSwapping=0;
 	//offtrace();
 }
 
@@ -114,9 +114,10 @@ void Crint(int &a, int p[])
 /*
  * Indicates Disk interrupt.
  * An I/O transfer between the disk and memory has been completed.
- * Mark job currently finished as unlatched 
- * Find another job to perform I/O
- * if no jobs to perform I/O on mark job unblocked
+ * Mark job currently finished as unlatched.
+ * Find another job to perform I/O.
+ * If job completed all IO transfers mark job unblocked.
+ * If job marked for termination, remove job.
  * p[5] = current time.
 */
 void Dskint(int &a, int p[])
@@ -124,15 +125,14 @@ void Dskint(int &a, int p[])
 	bookKeeper(p[5]);
 	PCB *job = Jobtable[IOqueue.front()];
 	job->setIOJobCount(job->getIOJobCount()-1);
+	job->setLatched(false);
 	IOqueue.pop_front();
 	if(!IOqueue.empty())// Test if any IO jobs left
 		siodisk(IOqueue.front());
 	if(job->getIOJobCount() <= 0){
 		job->setBlocked(false);
-		job->setLatched(false);
-		if(job->Terminate()){
+		if(job->Terminate())
 			terminate(job->getNum());
-		}
 	}
 	memoryManager();
 	dispatcher(a,p);
@@ -150,14 +150,11 @@ void Drmint(int &a, int p[])
 	bookKeeper(p[5]);
 	std::sort(Drumqueue.begin(),Drumqueue.end(), pairCompare);
 	/*
+	// Used in Debugging
 	for(std::deque<std::pair<int,int> >::iterator it=Drumqueue.begin();it != Drumqueue.end();++it)
 		std::cout<<"JOB NUM "<<it->second<<" SIZE "<<it->first<<std::endl;	
 	*/
-	PCB *job;
-	if(find(jobSwapping))
-		job = Jobtable[jobSwapping];
-	else
-		job = Jobtable[jobRunning];
+	PCB *job=Jobtable[jobSwapping]; 
 	DrumFlag=true; // Drum Critical Section ready to be opened 
 	if(job->InCore())
 		readyQueue.push_back(job->getNum());
@@ -200,7 +197,7 @@ void Svc(int &a, int p[])
 		case 6: startIO(job->getNum());
 				break;
 		case 7:	if(!IOqueue.empty())
-					job->setBlocked(true);
+				  job->setBlocked(true);
 				break;
 	}
 	memoryManager();
@@ -213,9 +210,10 @@ void Svc(int &a, int p[])
 	  ================
 */
 
+// Return true if job found 
 bool find(int job)
 {
-	std::map<int,PCB*>::iterator it=Jobtable.find(job); // Get most job running
+	std::map<int,PCB*>::iterator it=Jobtable.find(job); 
 	return(it == Jobtable.end()? false : true); 
 }
 
@@ -227,20 +225,20 @@ void bookKeeper(int time)
 	if(!find(jobRunning))
 		return; 
 	PCB *job= Jobtable[jobRunning];
-	if(!job->Running()|| job->Blocked()){
+	if(!job->Running()|| job->Blocked() || job->Terminate()){ // Cases where job cant run
 		job->setStartIntTime(time);	
 		return;
 	}
 	amt = time - job->getStartIntTime();
 	if(amt == TIMESLICE)
 		return;
-	job->setTimeRemain(amt);
+	job->setTimeRemain(amt); // Update Time Remaing
 }
 
-// Sorting algorithm used in Free Space
+// Sorting algorithm used in std::sort 
 bool pairCompare(const std::pair<int,int> firstElem, const std::pair<int,int>secondElem) 
 {
-  return firstElem.first < secondElem.first; // Based On Best Fit Table
+  return firstElem.first < secondElem.first;
 }
 
 /* 
@@ -266,23 +264,26 @@ int freeSpace(int jobSize)
 	}
 	return -1;
 }
-			
+		
+/*
+ * Test All Jobs on Freespace Table
+ * To see if free space can be combined
+*/
 void consolidateAll()
 {
 	for(std::vector< std::pair<int,int> >::iterator it = FSTable.begin(); it != FSTable.end(); ++it){
-			if(consolidate((std::make_pair(it->first,it->second)))){
-			//	std::cout<<"Erasing it"<<it->first<<" "<<it->second<<std::endl;
-				FSTable.erase(it);
-				return;
-			}
-			}
+		if(consolidate((std::make_pair(it->first,it->second)))){
+			FSTable.erase(it);
+			return;
+		}
+	}
 }
 
 /*
  * Memory Manager
  * Handle Drum Queue For Job to be placed in core
  * Handle if enough memory move job
- * Handle case where not enough memory for job therefore take out a job
+ * Handle case where not enough memory for job therefore take out a job (Not implemented)
 */  
 void memoryManager()
 {
@@ -301,7 +302,7 @@ void memoryManager()
 		temp.pop_front();
 	}
 	*/
-    if(Drumqueue.empty()) // return if empty
+    if(Drumqueue.empty())
         return;
     PCB *job= Jobtable[Drumqueue.front().second];
 	if(DrumFlag){
@@ -314,8 +315,8 @@ void memoryManager()
 		 	DrumFlag=false;
 		}else{
     		//(Using some Alog) swap from memory to drum 
-			}
-    	}
+		}
+    }
 }
 
 void dispatcher(int &a,int* p)
@@ -355,11 +356,7 @@ int getNextJob()
 }
 
 /* 
- * Scheduler 
- * handle readyQueue
- * Using some Algorithm select job 
- * handle cases where job is unable to run
- * handle cycle of jobs running on CPU
+ * Using some Algorithm select job to run 
 */
 int scheduler(int time)
 {
@@ -370,39 +367,30 @@ int scheduler(int time)
 	*/
 	PCB* job;
 	int jobToRun=-1;
-	//std::cout<<"Ready Queue"<<readyQueue.size()<<std::endl;
 	if(find(readyQueue.front())){ // Get most recent job on ready queue
-		//std::cout<<"Ready Queue Size"<<readyQueue.size()<<std::endl;
 		job= Jobtable[readyQueue.front()];	
-		if(job->Blocked() || job->Terminate()){
+		if(job->Blocked() || job->Terminate()){ // Cases where job Can't Run
 			readyQueue.pop_front();
-			//std::cout<<"In this case"<<std::endl;
-			job->setStartIntTime(time);
+			//job->setStartIntTime(time);
 			readyQueue.push_back(job->getNum());
 			job->setRunning(false);
 			jobToRun=getNextJob();
-			}else{
-				//job->setRunning(false);
-				jobToRun = job->getNum(); 
-			}
+		}else
+			jobToRun = job->getNum(); 
 	}
 	return jobToRun;
 }
 
 /*
- *	Used in terminate() to join adjacent jobs in memory
+ *	Used to join adjacent job in memory
 */ 
 bool consolidate(const std::pair<int,int> it)
 {   
 	int temp=0;
     for(std::vector<std::pair<int,int> >::iterator itr=FSTable.begin();itr != FSTable.end(); ++itr){
-		//std::cout<<"Compare "<<it.first<<" "<<it.second<<" "<<it.first+it.second<<" with "<<itr->second<<std::endl;
         if(it.first + it.second == itr->second){
-		//	std::cout<<"IN case"<<std::endl;
             temp = itr->first;
-		//	std::cout<<" Erased "<<itr->first<<" "<<itr->second<<std::endl;
             FSTable.erase(itr);
-		//  std::cout<<"pushed back "<<it.first+temp<<" @ "<<it.second<<std::endl;
             FSTable.push_back(std::make_pair(it.first+temp,it.second));
             return true;
         }
@@ -412,20 +400,20 @@ bool consolidate(const std::pair<int,int> it)
 
 /*
  * Terminate 
+ * Handle Cases where job is currently doing I/O maked for termination
  * Free Job Table entry
- * Free Free Space Entry 
+ * Free Free Space entry 
 */
 void terminate(int jobNum)
 {
 	std::map<int,PCB*>::iterator it=Jobtable.find(jobNum);
-	if(it!=Jobtable.end()){
+	if(find(jobNum)){
 		PCB *job=it->second;
-		if(!job->Blocked() && !job->Latched() && !job->Terminate()){ // Job not blocked and can be deleted
+		if(!job->Blocked() && !job->Latched() && !job->Terminate()){ // Job not blocked or running I/O and can be deleted
 			std::pair<int,int> p = std::make_pair(job->getSize(),job->getAddress());
             if(!consolidate(p))
 				FSTable.push_back(std::make_pair(job->getSize(),job->getAddress()));
 			readyQueue.erase(std::remove(readyQueue.begin(),readyQueue.end(),jobNum),readyQueue.end());	
-			//std::cout<<"DELETING "<<it->second->getNum()<<" With "<<it->second->getSize()<<" @"<<it->second->getAddress()<<std::endl;
 			delete it->second;
 			Jobtable.erase(it);	
 		}else{
@@ -434,7 +422,6 @@ void terminate(int jobNum)
 		}
 	}
 }
-
 
  /*
   * Handle I/O 
