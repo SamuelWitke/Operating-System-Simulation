@@ -11,7 +11,6 @@ class PCB
 		PCB();
 		PCB(const int *data);
 		PCB &operator = (const PCB &pcb);
-		// Setter Methods
 		void setAddress(const int addr);
 		void setBlocked(const bool);	
 		void setTimeRemain(const int); 
@@ -20,7 +19,6 @@ class PCB
 		void setRunning(const bool);
 		void setTerminate(const bool);
 		void setIOJobCount(const int);
-		// Getter Methods
 		bool Blocked()const;
 		int getAddress()const;
 		int getIOJobCount()const;
@@ -142,7 +140,7 @@ int PCB::getMaxCpu()const
 * Used for debugging 
 std::ostream &operator<<(std::ostream &os,const PCB &other)
 {
-	os<<"Job size"<<other.size;
+	os<<"Job Size"<<other.size;
 	os<<" Addr "<<other.address;
 	return os;
 }
@@ -180,7 +178,7 @@ PCB::PCB(const int *data)
 	startIntTime=0;
 }
 
-PCB &PCB::operator = (const PCB &pcb)
+PCB &PCB::operator=(const PCB &pcb)
 {
 	num = pcb.num;
 	prio = pcb.prio;
