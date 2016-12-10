@@ -26,7 +26,7 @@ int freeSpace(int);
 void memoryManager();
 
 // Helper Function used to find the best job
-int scheduler(int time);
+int scheduler();
 
 //Helper Function used to run job selected by scheduler 
 void dispatcher(int&,int*);
@@ -131,6 +131,7 @@ void Dskint(int &a, int p[])
 		siodisk(IOqueue.front());
 	if(job->getIOJobCount() <= 0){
 		job->setBlocked(false);
+		readyQueue.push_back(job->getNum());
 		if(job->Terminate())
 			terminate(job->getNum());
 	}
@@ -196,14 +197,15 @@ void Svc(int &a, int p[])
 				break;
 		case 6: startIO(job->getNum());
 				break;
-		case 7:	if(!IOqueue.empty())
+		case 7:	if(!IOqueue.empty()){
 				  job->setBlocked(true);
+				  readyQueue.pop_front();
+				}
 				break;
 	}
 	memoryManager();
 	dispatcher(a,p);
 }
-
 
 /*
 	  Helper Functions
@@ -225,7 +227,7 @@ void bookKeeper(int time)
 	if(!find(jobRunning))
 		return; 
 	PCB *job= Jobtable[jobRunning];
-	if(!job->Running()|| job->Blocked() || job->Terminate()){ // Cases where job cant run
+	if(!job->Running() || job->Blocked() || job->Terminate()){ // Cases where job cant run
 		job->setStartIntTime(time);	
 		return;
 	}
@@ -321,8 +323,8 @@ void memoryManager()
 
 void dispatcher(int &a,int* p)
 {
-	if(find(scheduler(p[5]))){
-		PCB *job= Jobtable[scheduler(p[5])];	
+	if(find(scheduler())){
+		PCB *job= Jobtable[scheduler()];	
 		//std::cout<<"RUNNING job"<<job->getNum()<<std::endl;
 		p[2]= job->getAddress();
 		p[3]= job->getSize();
@@ -341,6 +343,7 @@ void dispatcher(int &a,int* p)
 	}
 }
 
+/*
 int getNextJob()
 {
 	if(readyQueue.size() > 1){ // Case test when to get new job
@@ -354,11 +357,12 @@ int getNextJob()
 	}
 	return -1;
 }
+*/
 
 /* 
  * Using some Algorithm select job to run 
 */
-int scheduler(int time)
+int scheduler()
 {
 	/*
 	std::cout<<" READY QUEUE "<<std::endl;
@@ -367,8 +371,9 @@ int scheduler(int time)
 	*/
 	PCB* job;
 	int jobToRun=-1;
-	if(find(readyQueue.front())){ // Get most recent job on ready queue
+	if(find(readyQueue.front()) && !readyQueue.empty()){ // Get most recent job on ready queue
 		job= Jobtable[readyQueue.front()];	
+		/*
 		if(job->Blocked() || job->Terminate()){ // Cases where job Can't Run
 			readyQueue.pop_front();
 			//job->setStartIntTime(time);
@@ -376,7 +381,8 @@ int scheduler(int time)
 			job->setRunning(false);
 			jobToRun=getNextJob();
 		}else
-			jobToRun = job->getNum(); 
+		*/
+		jobToRun = job->getNum(); 
 	}
 	return jobToRun;
 }
@@ -409,7 +415,7 @@ void terminate(int jobNum)
 	std::map<int,PCB*>::iterator it=Jobtable.find(jobNum);
 	if(find(jobNum)){
 		PCB *job=it->second;
-		if(!job->Blocked() && !job->Latched() && !job->Terminate()){ // Job not blocked or running I/O and can be deleted
+		if(!job->Blocked() && !job->Latched()){ // Job not blocked or running I/O and can be deleted
 			std::pair<int,int> p = std::make_pair(job->getSize(),job->getAddress());
             if(!consolidate(p))
 				FSTable.push_back(std::make_pair(job->getSize(),job->getAddress()));
