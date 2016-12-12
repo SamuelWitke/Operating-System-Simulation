@@ -5,20 +5,21 @@ class PCB
 {
 	//friend std::ostream& operator<<(std::ostream & os, const PCB &other);
 	private:
-		int num,prio,size,maxCpu,timeRemain,address,startIntTime,IOjobcount;
+		int num,prio,size,maxCpu,timeRemain,address,startIntTime,IOjobcount, CurrentRQ;
 		bool inCore,blocked,latched,running,terminate;
 	public:
 		PCB();
 		PCB(const int *data);
 		PCB &operator = (const PCB &pcb);
 		void setAddress(const int addr);
-		void setBlocked(const bool);	
-		void setTimeRemain(const int); 
+		void setBlocked(const bool);
+		void setTimeRemain(const int);
 		void setLatched(const bool);
 		void setStartIntTime(const int);
 		void setRunning(const bool);
 		void setTerminate(const bool);
 		void setIOJobCount(const int);
+		void setCurrentReadyQ(const int);
 		bool Blocked()const;
 		int getAddress()const;
 		int getIOJobCount()const;
@@ -27,6 +28,8 @@ class PCB
 		int getMaxCpu()const;
 		int getTimeRemain()const ;
 		int getStartIntTime()const;
+		int getPriorty()const;
+		int getCurrentQ()const;
 		bool InCore()const;
 		bool Latched()const;
 		bool Running()const;
@@ -72,8 +75,13 @@ void PCB::setTimeRemain(const int amt)
 
 void PCB::setAddress(const int addr)
 {
-	address = addr;	
-	inCore = true;	
+	address = addr;
+	inCore = true;
+}
+
+void PCB::setCurrentReadyQ(int x){
+
+    CurrentRQ = x;
 }
 
 int PCB::getIOJobCount()const
@@ -136,8 +144,18 @@ int PCB::getMaxCpu()const
 	return maxCpu;
 }
 
+int PCB::getPriorty()const
+{
+    return prio;
+}
+
+int PCB::getCurrentQ()const{
+
+    return CurrentRQ;
+}
+
 /*
-* Used for debugging 
+* Used for debugging
 std::ostream &operator<<(std::ostream &os,const PCB &other)
 {
 	os<<"Job Size"<<other.size;
@@ -146,7 +164,7 @@ std::ostream &operator<<(std::ostream &os,const PCB &other)
 }
 */
 
-// Initial Constructor 
+// Initial Constructor
 PCB::PCB()
 {
 	num = 0;
@@ -161,7 +179,7 @@ PCB::PCB()
 	running = false;
 	terminate = false;
 	startIntTime=0;
-}	
+}
 
 PCB::PCB(const int *data)
 {
