@@ -18,7 +18,8 @@ class PCB
 		void setStartIntTime(const int);
 		void setRunning(const bool);
 		void setTerminate(const bool);
-		void setIOJobCount(const int);
+		void IOCountIN();
+		void IOCountDec();
 		void setCurrentReadyQ(const int);
 		bool Blocked()const;
 		int getAddress()const;
@@ -37,9 +38,14 @@ class PCB
 };
 #endif
 
-void PCB::setIOJobCount(const int val)
+void PCB::IOCountIN()
 {
-	IOjobcount = val;
+	IOjobcount++;
+}
+
+void PCB::IOCountDec()
+{
+	IOjobcount--;
 }
 
 void PCB::setTerminate(const bool val)
@@ -173,6 +179,7 @@ PCB::PCB()
 	maxCpu = 0;
 	timeRemain = 0;
 	address = -1;
+	IOjobcount =0;
 	inCore = false;
 	blocked = false;
 	latched = false;
@@ -194,6 +201,7 @@ PCB::PCB(const int *data)
 	timeRemain=maxCpu;
 	terminate = false;
 	startIntTime=0;
+	IOjobcount =0;
 }
 
 PCB &PCB::operator=(const PCB &pcb)
@@ -209,5 +217,6 @@ PCB &PCB::operator=(const PCB &pcb)
 	timeRemain=pcb.timeRemain;
 	startIntTime=pcb.startIntTime;
 	terminate = pcb.terminate;
+	IOjobcount =pcb.IOjobcount;
 	return *this;
 }
