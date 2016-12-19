@@ -6,7 +6,7 @@ class PCB
 	//friend std::ostream& operator<<(std::ostream & os, const PCB &other);
 	private:
 		int num,prio,size,maxCpu,timeRemain,address,startIntTime,IOjobcount, CurrentRQ;
-		bool inCore,blocked,latched,running,terminate;
+		bool inCore,blocked,latched,running,terminate,notYet;
 	public:
 		PCB();
 		PCB(const int *data);
@@ -20,6 +20,7 @@ class PCB
 		void setTerminate(const bool);
 		void IOCountIN();
 		void IOCountDec();
+		void setInCore(const bool);
 		void setCurrentReadyQ(const int);
 		bool Blocked()const;
 		int getAddress()const;
@@ -37,6 +38,11 @@ class PCB
 		bool Terminate()const;
 };
 #endif
+
+void PCB::setInCore(const bool val)
+{
+	inCore = val;
+}
 
 void PCB::IOCountIN()
 {
@@ -82,7 +88,6 @@ void PCB::setTimeRemain(const int amt)
 void PCB::setAddress(const int addr)
 {
 	address = addr;
-	inCore = true;
 }
 
 void PCB::setCurrentReadyQ(int x){
