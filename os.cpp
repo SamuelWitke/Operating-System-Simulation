@@ -6,8 +6,8 @@
 #include <algorithm>
 #include <iostream>
 
-static const int TIMESLICE [6] = {0,20,40,100,1000,5000}; //last queue is FCFS, queue 0 is omitted
-static std::map<int,PCB*> Jobtable;     // Map of jobs (Job Number)->Process Control Block
+static const int TIMESLICE [6] = {0,20,200,1000,2000,5000}; //last queue is FCFS, queue 0 is omitted
+static std::map<int,PCB*> Jobtable;     // Map of job (Job Number)->Process Control Block
 static std::deque<int> IOqueue;            // Queue of I/O requests
 static std::vector<std::pair<int,int> > FSTable;   // Size,Address (Best Fit Free Space Table)
 static std::deque<std::pair<int,int> > Drumqueue; // Queue of Jobs on Drum to be put in memory job size job num
@@ -54,6 +54,11 @@ void consolidateAll();
 // Swap a job out of memory when too big and blocked
 void swapper();
 
+// Retrieves the next IO job based on small cpu time
+int getIOJob();
+
+// Returns smallest val from map
+int getMapMin(std::map<int,int>);
 
 /*
           SOS Functions
@@ -112,11 +117,11 @@ void Crint(int &a, int p[])
 {
     bookKeeper(p[5]);
     Jobtable[p[1]] = new PCB(p);      // Add to Jobtable (Job Number)->Process Control Block
-    Drumqueue.push_back(std::make_pair(p[3],p[1]));          // Add Job to Drum Queue (size,number)
+    Drumqueue.push_back(std::make_pair(p[4],p[1]));          // Add Job to Drum Queue (size,number)
     memoryManager();                                // Handle memory for job
     dispatcher(a,p);                           // Call to run job
 }
- 
+
 /*
  * Indicates Disk interrupt.
  * An I/O transfer between the disk and memory has been completed.
@@ -131,19 +136,22 @@ void Dskint(int &a, int p[])
     bookKeeper(p[5]);
 	/*
     std::cout<<"IO QUEUE"<<std::endl;
-    for(std::deque<std::pair<int,int> >::iterator it = IOqueue.begin();it!= IOqueue.end();++it)
-    	std::cout<<"CPU SIZE"<<it->first<<" job "<<it->second<<std::endl;
+    for(std::deque<int>::iterator it = IOqueue.begin();it!= IOqueue.end();++it)
+    	std::cout<<" job "<<*it<<std::endl;
 	*/
     PCB *job = Jobtable[jobIO];
     job->IOCountDec();
     job->setLatched(false);
-    IOqueue.pop_front();
+    std::deque<int>::iterator it = std::find(IOqueue.begin(),IOqueue.end(),job->getNum());
+	if(it != IOqueue.end())
+		IOqueue.erase(it);
     if(!IOqueue.empty()){// Test if any IO jobs left
-		jobIO=IOqueue.front();
-        siodisk(IOqueue.front());
+		jobIO=getIOJob();
+        siodisk(jobIO);
 	}
     if(job->getIOJobCount() == 0){
     	job->setBlocked(false);
+		blockedQueue.pop_front();
        	if(job->Terminate())
         	terminate(job->getNum());
     }
@@ -161,18 +169,17 @@ void Dskint(int &a, int p[])
 void Drmint(int &a, int p[])
 {
     bookKeeper(p[5]);
-	//std::cout<<"IN DRMINT"<<std::endl;
+	std::cout<<"IN DRMINT"<<std::endl;
     std::sort(Drumqueue.begin(),Drumqueue.end(),pairCompare);
-	/*
     // Used in Debugging
     for(std::deque<std::pair<int,int> >::iterator it=Drumqueue.begin();it != Drumqueue.end();++it)
             std::cout<<"JOB NUM "<<it->second<<" SIZE "<<it->first<<std::endl;
-	*/
     PCB *job=Jobtable[jobSwapping];
     DrumFlag=true; // Drum Critical Section ready to be opened
 	//std::cout<<"Job size"<<job->getSize()<<std::endl;
     if(job->InCore()){
-        int priority = job->getPriorty();
+        //int priority = getPriorty(job->getMaxCpu());
+		int priority = job->getPriorty();
         readyQueue[priority].push_back(job->getNum());
     }
     memoryManager();
@@ -218,7 +225,8 @@ void Svc(int &a, int p[])
     	case 7:
         	if(job->getIOJobCount() != 0){
             	job->setBlocked(true);
-				if(job->getMaxCpu() == 65000)
+				blockedQueue.push_back(job->getNum());
+				if(job->getMaxCpu() >= 55000) 
 					jobBlocked = job->getNum();
             	//std::deque<int>::iterator v = std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
             	//if(v != readyQueue[job->getCurrentQ()].end())
@@ -234,6 +242,31 @@ void Svc(int &a, int p[])
           Helper Functions
           ================
 */
+
+typedef std::pair<int, int> MyPairType;
+struct CompareSecond
+{
+    bool operator()(const MyPairType& left, const MyPairType& right) const
+    {
+        return left.first < right.first;
+    }
+};
+
+int getMapMin(std::map<int,int> temp)	
+{
+	std::pair<int, int> min 
+      = *std::min_element(temp.begin(),temp.end(), CompareSecond());
+	return min.second;
+}
+ 
+int getIOJob()
+{
+	std::map<int,int> temp;	
+    for(std::deque<int>::iterator it = IOqueue.begin();it!= IOqueue.end();++it){
+		temp[(Jobtable[*it]->getMaxCpu())] = *it;	
+	}
+	return getMapMin(temp);
+}
 
 // Return true if job found
 bool find(int job)
@@ -383,8 +416,10 @@ void dispatcher(int &a,int* p)
         jobRunning = job->getNum();
         a=2; // set CPU to run mode
     }
-    else
+    else{
+		std::cout<<"IN THIS CASE ERRORR"<<std::endl;
         a=1;
+	}
 }
 
 /*
