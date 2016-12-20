@@ -12,7 +12,6 @@ static std::deque<int> IOqueue;            // Queue of I/O requests
 static std::vector<std::pair<int,int> > FSTable;   // Size,Address (Best Fit Free Space Table)
 static std::deque<std::pair<int,int> > Drumqueue; // Queue of Jobs on Drum to be put in memory job size job num
 static std::vector<std::deque<int> > readyQueue (6);       // Ready Queue of jobs ready to be processed
-static std::deque<int> blockedQueue;
 static bool DrumFlag;                             // Used in Memory Manager as a critical section flag
 static int jobRunning;            // Used in to find running job
 static int jobSwapping;          // Used to find job begin placed into memory
@@ -150,7 +149,6 @@ void Dskint(int &a, int p[])
 	}
     if(job->getIOJobCount() == 0){
     	job->setBlocked(false);
-		blockedQueue.pop_front();
        	if(job->Terminate())
         	terminate(job->getNum());
     }
@@ -169,11 +167,12 @@ void Dskint(int &a, int p[])
 void Drmint(int &a, int p[])
 {
     bookKeeper(p[5]);
+	int priority;
     std::sort(Drumqueue.begin(),Drumqueue.end(),pairCompare);
     PCB *job=Jobtable[jobSwapping];
     DrumFlag=true; 
     if(job->InCore()){
-		int priority = job->getPriorty();
+		priority = job->getPriorty();
         readyQueue[priority].push_back(job->getNum());
     }
     memoryManager();
@@ -220,7 +219,6 @@ void Svc(int &a, int p[])
     	case 7:
         	if(job->getIOJobCount() != 0){
             	job->setBlocked(true);
-				blockedQueue.push_back(job->getNum());
 				if(job->getMaxCpu() == 65000) 
 					jobBlocked = job->getNum();
         	}
@@ -248,8 +246,7 @@ struct CompareSecond
 // Return smallest value from map
 int getMapMin(std::map<int,int> temp)	
 {
-	std::pair<int, int> min 
-      = *std::min_element(temp.begin(),temp.end(), CompareSecond());
+	std::pair<int, int> min = *std::min_element(temp.begin(),temp.end(), CompareSecond());
 	return min.second;
 }
  
@@ -257,9 +254,8 @@ int getMapMin(std::map<int,int> temp)
 int getIOJob()
 {
 	std::map<int,int> temp;	
-    for(std::deque<int>::iterator it = IOqueue.begin();it!= IOqueue.end();++it){
+    for(std::deque<int>::iterator it = IOqueue.begin();it!= IOqueue.end();++it)
 		temp[(Jobtable[*it]->getTimeRemain())] = *it;	
-	}
 	return getMapMin(temp);
 }
 
@@ -345,7 +341,8 @@ void swapper()
            	std::pair<int,int> p = std::make_pair(job->getSize(),job->getAddress());
            	if(!consolidate(p))
             	FSTable.push_back(std::make_pair(job->getSize(),job->getAddress()));
-           	std::deque<int>::iterator v = std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
+           	std::deque<int>::iterator v = 
+			std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
            	if(v != readyQueue[job->getCurrentQ()].end())
               		readyQueue[job->getCurrentQ()].erase(v);
 			siodrum(job->getNum(),job->getSize(),job->getAddress(),1);
@@ -380,7 +377,6 @@ void memoryManager()
             Drumqueue.pop_front();
             DrumFlag=false;
 			job->setInCore(true);
-			
         }else
 			swapper();
 	}
@@ -495,14 +491,16 @@ void terminate(int jobNum)
             if(!consolidate(p))
                 FSTable.push_back(std::make_pair(job->getSize(),job->getAddress()));
 			// Remove from Ready queue
-            std::deque<int>::iterator v = std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
+            std::deque<int>::iterator v = 
+			std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
             if(v != readyQueue[job->getCurrentQ()].end())
                 readyQueue[job->getCurrentQ()].erase(v);
              delete it->second;
             Jobtable.erase(it);
         }else{
             it->second->setTerminate(true);
-            std::deque<int>::iterator v = std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
+            std::deque<int>::iterator v =
+			 std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
             if(v != readyQueue[job->getCurrentQ()].end())
                 readyQueue[job->getCurrentQ()].erase(v);
         }
