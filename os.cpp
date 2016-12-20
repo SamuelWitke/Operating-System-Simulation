@@ -140,7 +140,8 @@ void Dskint(int &a, int p[])
     PCB *job = Jobtable[jobIO];
     job->IOCountDec();
     job->setLatched(false);
-    std::deque<int>::iterator it = std::find(IOqueue.begin(),IOqueue.end(),job->getNum());
+    std::deque<int>::iterator it = 
+	std::find(IOqueue.begin(),IOqueue.end(),job->getNum());
 	if(it != IOqueue.end())
 		IOqueue.erase(it);
     if(!IOqueue.empty()){
