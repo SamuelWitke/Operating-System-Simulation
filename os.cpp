@@ -18,6 +18,7 @@ static int jobRunning;            // Used in to find running job
 static int jobSwapping;          // Used to find job begin placed into memory
 static int jobBlocked = -1;
 static int jobIO;
+
 // Used in free Space to sort by size
 bool pairCompare(const std::pair<int,int>,const std::pair<int,int>);
 
@@ -59,6 +60,9 @@ int getIOJob();
 
 // Returns smallest val from map
 int getMapMin(std::map<int,int>);
+
+// Find Lv of job on readyQueue
+int findReadyQ();
 
 /*
           SOS Functions
@@ -117,9 +121,9 @@ void Crint(int &a, int p[])
 {
     bookKeeper(p[5]);
     Jobtable[p[1]] = new PCB(p);      // Add to Jobtable (Job Number)->Process Control Block
-    Drumqueue.push_back(std::make_pair(p[4],p[1]));          // Add Job to Drum Queue (size,number)
-    memoryManager();                                // Handle memory for job
-    dispatcher(a,p);                           // Call to run job
+    Drumqueue.push_back(std::make_pair(p[4],p[1]));          // Add Job to Drum Queue (CPU size,number)
+    memoryManager();                                		// Handle memory for job
+    dispatcher(a,p);                           			   // Call to run job
 }
 
 /*
@@ -134,18 +138,13 @@ void Crint(int &a, int p[])
 void Dskint(int &a, int p[])
 {
     bookKeeper(p[5]);
-	/*
-    std::cout<<"IO QUEUE"<<std::endl;
-    for(std::deque<int>::iterator it = IOqueue.begin();it!= IOqueue.end();++it)
-    	std::cout<<" job "<<*it<<std::endl;
-	*/
     PCB *job = Jobtable[jobIO];
     job->IOCountDec();
     job->setLatched(false);
     std::deque<int>::iterator it = std::find(IOqueue.begin(),IOqueue.end(),job->getNum());
 	if(it != IOqueue.end())
 		IOqueue.erase(it);
-    if(!IOqueue.empty()){// Test if any IO jobs left
+    if(!IOqueue.empty()){
 		jobIO=getIOJob();
         siodisk(jobIO);
 	}
@@ -164,21 +163,16 @@ void Dskint(int &a, int p[])
  * A transfer between the drum and memory has completed a swap (In/Out)
  * Find best job to put into memory
  * Set the flag in memory manager to show drum is not busy
+ * Place job on ready queue if inCore
  * p[5] = current time.
  */
 void Drmint(int &a, int p[])
 {
     bookKeeper(p[5]);
-	std::cout<<"IN DRMINT"<<std::endl;
     std::sort(Drumqueue.begin(),Drumqueue.end(),pairCompare);
-    // Used in Debugging
-    for(std::deque<std::pair<int,int> >::iterator it=Drumqueue.begin();it != Drumqueue.end();++it)
-            std::cout<<"JOB NUM "<<it->second<<" SIZE "<<it->first<<std::endl;
     PCB *job=Jobtable[jobSwapping];
-    DrumFlag=true; // Drum Critical Section ready to be opened
-	//std::cout<<"Job size"<<job->getSize()<<std::endl;
+    DrumFlag=true; 
     if(job->InCore()){
-        //int priority = getPriorty(job->getMaxCpu());
 		int priority = job->getPriorty();
         readyQueue[priority].push_back(job->getNum());
     }
@@ -194,8 +188,8 @@ void Tro(int &a, int p[])
 {
     bookKeeper(p[5]);
     PCB *job=Jobtable[jobRunning];
-    job->setTimeRemain(TIMESLICE[job->getCurrentQ()]); // Decrement the time remaining by the time slice
-    if(job->getTimeRemain() <= 0) // Terminate Job if no time processed remaining
+    job->setTimeRemain(TIMESLICE[job->getCurrentQ()]); 
+    if(job->getTimeRemain() <= 0)
         terminate(job->getNum());
     else if(job->getTimeRemain() < TIMESLICE[job->getCurrentQ()]){//Handle Case where time remaining is less than time slice
         p[4] = job->getTimeRemain();
@@ -210,6 +204,7 @@ void Tro(int &a, int p[])
  * a == 5 -> termination
  * a == 6 -> I/O operation
  * a == 7 -> Blocked until all pending I/O requests are filled
+ * Handle if big job is blocked should be swapped to disk
  */
 void Svc(int &a, int p[])
 {
@@ -226,11 +221,8 @@ void Svc(int &a, int p[])
         	if(job->getIOJobCount() != 0){
             	job->setBlocked(true);
 				blockedQueue.push_back(job->getNum());
-				if(job->getMaxCpu() >= 55000) 
+				if(job->getMaxCpu() == 65000) 
 					jobBlocked = job->getNum();
-            	//std::deque<int>::iterator v = std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
-            	//if(v != readyQueue[job->getCurrentQ()].end())
-             	//readyQueue[job->getCurrentQ()].erase(v);
         	}
         break;
     }
@@ -243,6 +235,7 @@ void Svc(int &a, int p[])
           ================
 */
 
+// Used to compare two pairs first element 
 typedef std::pair<int, int> MyPairType;
 struct CompareSecond
 {
@@ -252,6 +245,7 @@ struct CompareSecond
     }
 };
 
+// Return smallest value from map
 int getMapMin(std::map<int,int> temp)	
 {
 	std::pair<int, int> min 
@@ -259,11 +253,12 @@ int getMapMin(std::map<int,int> temp)
 	return min.second;
 }
  
+//Return next IO job based on smallest time remaining
 int getIOJob()
 {
 	std::map<int,int> temp;	
     for(std::deque<int>::iterator it = IOqueue.begin();it!= IOqueue.end();++it){
-		temp[(Jobtable[*it]->getMaxCpu())] = *it;	
+		temp[(Jobtable[*it]->getTimeRemain())] = *it;	
 	}
 	return getMapMin(temp);
 }
@@ -337,6 +332,10 @@ void consolidateAll()
     }
 }
 
+/* When job to be swapped is found and not latched
+ * Take job out of memory back on drum queue 
+ * Swap job to disk
+*/
 void swapper()
 {
 	if(find(jobBlocked)){
@@ -369,19 +368,6 @@ void memoryManager()
 {
     consolidateAll();
     std::sort(FSTable.begin(), FSTable.end(), pairCompare);
-	/*
-    std::cout<<"FREE SPACE"<<std::endl;
-    for(std::vector< std::pair<int,int> >::iterator it = FSTable.begin(); it != FSTable.end(); ++it)
-            std::cout<<"size "<<it->first<<" address "<<it->second<<std::endl;
-	*/
-    /*
-    Used in Debugging to see how many jobs need to be put into memory
-    std::deque<int> temp = Drumqueue;
-    while( ! temp.empty()){
-            std::cout<<" Job on DQue "<<temp.front()<<std::endl;
-            temp.pop_front();
-    }
-    */
     if(Drumqueue.empty())
 		return;
     PCB *job= Jobtable[Drumqueue.front().second];
@@ -395,12 +381,16 @@ void memoryManager()
             DrumFlag=false;
 			job->setInCore(true);
 			
-        }
-        else
+        }else
 			swapper();
 	}
 }
 
+/* 
+ * Called from every function
+ * See if job is available to run
+ * Else have CPU idle 
+*/
 void dispatcher(int &a,int* p)
 {
     if(find(scheduler())){
@@ -415,11 +405,8 @@ void dispatcher(int &a,int* p)
         job->setRunning(true);
         jobRunning = job->getNum();
         a=2; // set CPU to run mode
-    }
-    else{
-		std::cout<<"IN THIS CASE ERRORR"<<std::endl;
+    }else
         a=1;
-	}
 }
 
 /*
@@ -434,11 +421,6 @@ int getNextJob()
 	for(int i=1;i<readyQueue.size();i++){
     	for(std::deque<int>::iterator it=readyQueue[i].begin();it != readyQueue[i].end(); ++it){
             PCB *job= Jobtable[*it];
-			/*
-            std::cout<<*it<<"lv "<<i;
-			if(job->Blocked())
-				std::cout<<"Yes"<<std::endl;
-			*/
            	if(!job->Blocked() && !job->Terminate()){
 				  job->setCurrentReadyQ(i);
             	  return job->getNum();
@@ -453,28 +435,21 @@ int findReadyQ()
 {
     int x = 1;
     while(readyQueue[x].empty()&& x < 6)
-        x++;
+    	x++;
     if(x == 6) x = 5;//if x = 6 then all queues are empty. return 6 to mark all empty queues
     return x;
 }
 
 /*
- * Using some Algorithm select job to run
+ * Using some MLFQ select job to run
 */
 int scheduler()
 {
     PCB* job;
     int jobToRun=0;
     int x = findReadyQ(); //tells you which queue to get process from
-	/*
-    std::cout<<" READY QUEUE "<<std::endl;
-	for(int i=1;i<readyQueue.size();i++)
-    	for(std::deque<int>::iterator it = readyQueue[i].begin();it!= readyQueue[i].end();++it)
-            std::cout<<*it<<"lv "<<i;
-	*/
     if(find(readyQueue[x].front()) && !readyQueue[x].empty()){// Get most recent job on ready queue
         job= Jobtable[readyQueue[x].front()];
-        //Finding which readyQueue to use
 		job->setCurrentReadyQ(x);
        	if(job->Blocked() || job->Terminate()){ // Cases where job Can't Run
 			readyQueue[x].pop_front();
@@ -487,7 +462,7 @@ int scheduler()
 }
 
 /*
- *      Used to join adjacent job in memory
+ * Used to join adjacent job in memory
 */
 bool consolidate(const std::pair<int,int> it)
 {
@@ -507,6 +482,7 @@ bool consolidate(const std::pair<int,int> it)
  * Terminate
  * Handle Cases where job is currently doing I/O maked for termination
  * Free Job Table entry
+ * Free Ready Queue entry
  * Free Free Space entry
 */
 void terminate(int jobNum)
@@ -522,8 +498,7 @@ void terminate(int jobNum)
             std::deque<int>::iterator v = std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
             if(v != readyQueue[job->getCurrentQ()].end())
                 readyQueue[job->getCurrentQ()].erase(v);
-
-                delete it->second;
+             delete it->second;
             Jobtable.erase(it);
         }else{
             it->second->setTerminate(true);
@@ -547,12 +522,6 @@ void startIO(int jobNum)
     job->setLatched(true);
     job->IOCountIN();
     IOqueue.push_back(job->getNum());
- 
-	/*
-    std::cout<<"IO QUEUE"<<std::endl;
-    for(std::deque<std::pair<int,int> >::iterator it = IOqueue.begin();it!= IOqueue.end();++it)
-    	std::cout<<"CPU SIZE"<<it->first<<" job "<<it->second<<std::endl;
- 	*/
     if(IOqueue.size() == 1){
         siodisk(IOqueue.front());
 		jobIO=IOqueue.front();
