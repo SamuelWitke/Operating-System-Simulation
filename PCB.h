@@ -5,8 +5,8 @@ class PCB
 {
 	//friend std::ostream& operator<<(std::ostream & os, const PCB &other);
 	private:
-		int num,prio,size,maxCpu,timeRemain,address,startIntTime,IOjobcount, CurrentRQ;
-		bool inCore,blocked,latched,running,terminate,notYet;
+		int num,prio,size,maxCpu,timeRemain,address,startIntTime,IOjobcount,CurrentRQ;
+		bool inCore,blocked,latched,running,terminate;
 	public:
 		PCB();
 		PCB(const int *data);
@@ -175,7 +175,6 @@ std::ostream &operator<<(std::ostream &os,const PCB &other)
 }
 */
 
-// Initial Constructor
 PCB::PCB()
 {
 	num = 0;
@@ -203,10 +202,10 @@ PCB::PCB(const int *data)
 	blocked = false;
 	latched = false;
 	running = false;
-	timeRemain=maxCpu;
+	timeRemain = maxCpu;
 	terminate = false;
-	startIntTime=0;
-	IOjobcount =0;
+	startIntTime = 0;
+	IOjobcount = 0;
 }
 
 PCB &PCB::operator=(const PCB &pcb)
@@ -219,9 +218,9 @@ PCB &PCB::operator=(const PCB &pcb)
 	blocked = pcb.blocked;
 	latched = pcb.latched;
 	running = pcb.running;
-	timeRemain=pcb.timeRemain;
-	startIntTime=pcb.startIntTime;
+	timeRemain = pcb.timeRemain;
+	startIntTime = pcb.startIntTime;
 	terminate = pcb.terminate;
-	IOjobcount =pcb.IOjobcount;
+	IOjobcount = pcb.IOjobcount;
 	return *this;
 }
