@@ -169,16 +169,15 @@ void Dskint(int &a, int p[])
 void Drmint(int &a, int p[])
 {
     bookKeeper(p[5]);
-	int priority,jobTime,q;
+    int priority,jobTime,q=5;
     std::sort(Drumqueue.begin(),Drumqueue.end(),pairCompare);
     PCB *job=Jobtable[jobSwapping];
     DrumFlag=true;
     if(job->InCore()){
         //find ready queue according to Max CPU time
         jobTime = job->getMaxCpu();
-        q = 5;
-        for(int i= 1; i < 6;i++)
-            if( jobTime < TIMESLICE[i]){
+        for(int i= 1; i < 5;i++)
+            if(jobTime < TIMESLICE[i]){
                 q = i;
                 break;
             }
@@ -346,7 +345,7 @@ void swapper()
 	if(find(jobBlocked)){
 		std::map<int,PCB*>::iterator it=Jobtable.find(jobBlocked);
     	PCB *job =it->second;
-		 if(!job->Latched()){
+		if(!job->Latched()){
            	std::pair<int,int> p = std::make_pair(job->getSize(),job->getAddress());
            	if(!consolidate(p))
             	FSTable.push_back(std::make_pair(job->getSize(),job->getAddress()));
