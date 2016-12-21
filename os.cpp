@@ -6,17 +6,17 @@
 #include <algorithm>
 #include <iostream>
 
-static const int TIMESLICE [6] = {0,1500,2500,3500,4500,6500}; //last queue is FCFS, queue 0 is omitted
+static const int TIMESLICE [6] = {0,1500,2500,3500,4500,6500}; //Last queue is FCFS, queue 0 is omitted
 static std::map<int,PCB*> Jobtable;     // Map of job (Job Number)->Process Control Block
-static std::deque<int> IOqueue;            // Queue of I/O requests
-static std::vector<std::pair<int,int> > FSTable;   // Size,Address (Best Fit Free Space Table)
-static std::deque<std::pair<int,int> > Drumqueue; // Queue of Jobs on Drum to be put in memory job size job num
-static std::vector<std::deque<int> > readyQueue (6);       // Ready Queue of jobs ready to be processed
-static bool DrumFlag;                             // Used in Memory Manager as a critical section flag
+static std::deque<int> IOqueue;                               // Queue of I/O requests
+static std::vector<std::pair<int,int> > FSTable;             // Size,Address (Best Fit Free Space Table)
+static std::deque<std::pair<int,int> > Drumqueue;           // Queue of Jobs on Drum to be put in memory job size job num
+static std::vector<std::deque<int> > readyQueue(6);       // Ready Queue of jobs ready to be processed
+static bool DrumFlag;              // Used in Memory Manager as a critical section flag
 static int jobRunning;            // Used in to find running job
 static int jobSwapping;          // Used to find job begin placed into memory
-static int jobBlocked;
-static int jobIO;
+static int jobBlocked;          // Used in swapper to swapped blocked job
+static int jobIO;              // Used in diskint() and startIO for tracking IO job
 
 // Used in free Space to sort by size
 bool pairCompare(const std::pair<int,int>,const std::pair<int,int>);
@@ -279,7 +279,6 @@ bool find(int job)
 // Handle Cases where Job is interrupted and time needs to be updated
 void bookKeeper(int time)
 {
-    // Definitely needs to be cleaned up
     int amt=0;
     if(!find(jobRunning))
         return;
@@ -427,10 +426,8 @@ int getNextJob()
 	for(int i=1;i<readyQueue.size();i++){
     	for(std::deque<int>::iterator it=readyQueue[i].begin();it != readyQueue[i].end(); ++it){
             PCB *job= Jobtable[*it];
-           	if(!job->Blocked() && !job->Terminate()){
-				  //job->setCurrentReadyQ(i);
+           	if(!job->Blocked() && !job->Terminate())
             	  return job->getNum();
-			}
     	}
   	}
 	return -1;
@@ -509,7 +506,7 @@ void terminate(int jobNum)
         }else{
             it->second->setTerminate(true);
             std::deque<int>::iterator v =
-			 std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
+			std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
             if(v != readyQueue[job->getCurrentQ()].end())
                 readyQueue[job->getCurrentQ()].erase(v);
         }
