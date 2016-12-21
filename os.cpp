@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <iostream>
 
-static const int TIMESLICE [6] = {0,20,200,1000,2000,5000}; //last queue is FCFS, queue 0 is omitted
+static const int TIMESLICE [6] = {0,1500,2500,3500,4500,6500}; //last queue is FCFS, queue 0 is omitted
 static std::map<int,PCB*> Jobtable;     // Map of job (Job Number)->Process Control Block
 static std::deque<int> IOqueue;            // Queue of I/O requests
 static std::vector<std::pair<int,int> > FSTable;   // Size,Address (Best Fit Free Space Table)
@@ -15,7 +15,7 @@ static std::vector<std::deque<int> > readyQueue (6);       // Ready Queue of job
 static bool DrumFlag;                             // Used in Memory Manager as a critical section flag
 static int jobRunning;            // Used in to find running job
 static int jobSwapping;          // Used to find job begin placed into memory
-static int jobBlocked = -1;
+static int jobBlocked;
 static int jobIO;
 
 // Used in free Space to sort by size
@@ -103,6 +103,7 @@ void startup()
     ontrace();
     jobRunning=0;
     jobSwapping=0;
+	jobBlocked = -1;
     //offtrace();
 }
 
@@ -140,7 +141,7 @@ void Dskint(int &a, int p[])
     PCB *job = Jobtable[jobIO];
     job->IOCountDec();
     job->setLatched(false);
-    std::deque<int>::iterator it = 
+    std::deque<int>::iterator it =
 	std::find(IOqueue.begin(),IOqueue.end(),job->getNum());
 	if(it != IOqueue.end())
 		IOqueue.erase(it);
@@ -168,13 +169,21 @@ void Dskint(int &a, int p[])
 void Drmint(int &a, int p[])
 {
     bookKeeper(p[5]);
-	int priority;
+	int priority,jobTime,q;
     std::sort(Drumqueue.begin(),Drumqueue.end(),pairCompare);
     PCB *job=Jobtable[jobSwapping];
-    DrumFlag=true; 
+    DrumFlag=true;
     if(job->InCore()){
-		priority = job->getPriorty();
-        readyQueue[priority].push_back(job->getNum());
+        //find ready queue according to Max CPU time
+        jobTime = job->getMaxCpu();
+        q = 5;
+        for(int i= 1; i < 6;i++)
+            if( jobTime < TIMESLICE[i]){
+                q = i;
+                break;
+            }
+        readyQueue[q].push_back(job->getNum());
+        job->setCurrentReadyQ(q);
     }
     memoryManager();
     dispatcher(a,p);
@@ -188,7 +197,7 @@ void Tro(int &a, int p[])
 {
     bookKeeper(p[5]);
     PCB *job=Jobtable[jobRunning];
-    job->setTimeRemain(TIMESLICE[job->getCurrentQ()]); 
+    job->setTimeRemain(TIMESLICE[job->getCurrentQ()]);
     if(job->getTimeRemain() <= 0)
         terminate(job->getNum());
     else if(job->getTimeRemain() < TIMESLICE[job->getCurrentQ()]){//Handle Case where time remaining is less than time slice
@@ -220,7 +229,7 @@ void Svc(int &a, int p[])
     	case 7:
         	if(job->getIOJobCount() != 0){
             	job->setBlocked(true);
-				if(job->getMaxCpu() == 65000) 
+				if(job->getMaxCpu() == 65000)
 					jobBlocked = job->getNum();
         	}
         break;
@@ -234,7 +243,7 @@ void Svc(int &a, int p[])
           ================
 */
 
-// Used to compare two pairs first element 
+// Used to compare two pairs first element
 typedef std::pair<int, int> MyPairType;
 struct CompareSecond
 {
@@ -245,18 +254,18 @@ struct CompareSecond
 };
 
 // Return smallest value from map
-int getMapMin(std::map<int,int> temp)	
+int getMapMin(std::map<int,int> temp)
 {
 	std::pair<int, int> min = *std::min_element(temp.begin(),temp.end(), CompareSecond());
 	return min.second;
 }
- 
+
 //Return next IO job based on smallest time remaining
 int getIOJob()
 {
-	std::map<int,int> temp;	
+	std::map<int,int> temp;
     for(std::deque<int>::iterator it = IOqueue.begin();it!= IOqueue.end();++it)
-		temp[(Jobtable[*it]->getTimeRemain())] = *it;	
+		temp[(Jobtable[*it]->getTimeRemain())] = *it;
 	return getMapMin(temp);
 }
 
@@ -330,7 +339,7 @@ void consolidateAll()
 }
 
 /* When job to be swapped is found and not latched
- * Take job out of memory back on drum queue 
+ * Take job out of memory back on drum queue
  * Swap job to disk
 */
 void swapper()
@@ -342,7 +351,7 @@ void swapper()
            	std::pair<int,int> p = std::make_pair(job->getSize(),job->getAddress());
            	if(!consolidate(p))
             	FSTable.push_back(std::make_pair(job->getSize(),job->getAddress()));
-           	std::deque<int>::iterator v = 
+           	std::deque<int>::iterator v =
 			std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
            	if(v != readyQueue[job->getCurrentQ()].end())
               		readyQueue[job->getCurrentQ()].erase(v);
@@ -383,10 +392,10 @@ void memoryManager()
 	}
 }
 
-/* 
+/*
  * Called from every function
  * See if job is available to run
- * Else have CPU idle 
+ * Else have CPU idle
 */
 void dispatcher(int &a,int* p)
 {
@@ -409,7 +418,7 @@ void dispatcher(int &a,int* p)
 /*
  * Start from Lv 1
  * test every job to see if it can run
- * if job can run 
+ * if job can run
  * update currentQ
  * return job
 */
@@ -419,7 +428,7 @@ int getNextJob()
     	for(std::deque<int>::iterator it=readyQueue[i].begin();it != readyQueue[i].end(); ++it){
             PCB *job= Jobtable[*it];
            	if(!job->Blocked() && !job->Terminate()){
-				  job->setCurrentReadyQ(i);
+				  //job->setCurrentReadyQ(i);
             	  return job->getNum();
 			}
     	}
@@ -447,8 +456,7 @@ int scheduler()
     int x = findReadyQ(); //tells you which queue to get process from
     if(find(readyQueue[x].front()) && !readyQueue[x].empty()){// Get most recent job on ready queue
         job= Jobtable[readyQueue[x].front()];
-		job->setCurrentReadyQ(x);
-       	if(job->Blocked() || job->Terminate()){ // Cases where job Can't Run
+        if(job->Blocked() || job->Terminate()){ // Cases where job Can't Run
 			readyQueue[x].pop_front();
 			readyQueue[x].push_back(job->getNum());
           	jobToRun=getNextJob();
@@ -487,12 +495,12 @@ void terminate(int jobNum)
     std::map<int,PCB*>::iterator it=Jobtable.find(jobNum);
     if(find(jobNum)){
         PCB *job=it->second;
-        if(!job->Blocked() && !job->Latched()){// Job not blocked or running I/O and can be deleted 
+        if(!job->Blocked() && !job->Latched()){// Job not blocked or running I/O and can be deleted
             std::pair<int,int> p = std::make_pair(job->getSize(),job->getAddress());
             if(!consolidate(p))
                 FSTable.push_back(std::make_pair(job->getSize(),job->getAddress()));
 			// Remove from Ready queue
-            std::deque<int>::iterator v = 
+            std::deque<int>::iterator v =
 			std::find(readyQueue[job->getCurrentQ()].begin(),readyQueue[job->getCurrentQ()].end(),job->getNum());
             if(v != readyQueue[job->getCurrentQ()].end())
                 readyQueue[job->getCurrentQ()].erase(v);
